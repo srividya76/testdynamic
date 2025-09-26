@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Hot Wheels Capture</title>
+  <!-- iOS PWA meta -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Hot Wheels" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256'%3E%3Crect width='256' height='256' rx='56' fill='%230a7'%3E%3C/rect%3E%3Ctext x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='128' fill='white'%3EH%3C/text%3E%3Ctext x='55%25' y='78%25' dominant-baseline='middle' text-anchor='middle' font-family='Arial' font-size='64' fill='white'%3EW%3C/text%3E%3C/svg%3E" />
+  <meta name="theme-color" content="#0a7" />
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Tesseract.js for client-side OCR -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <!-- localForage for IndexedDB storage -->
+  <script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>
+  <style>
+    .glass { background: rgba(255,255,255,0.7); backdrop-filter: blur(6px); }
+    .tap { -webkit-tap-highlight-color: transparent; }
+  </style>
+</head>
+<body class="bg-gradient-to-b from-emerald-50 to-white min-h-screen text-gray-900">
+  <header class="sticky top-0 z-20 glass border-b border-emerald-200/60">
+    <div class="max-w-3xl mx-auto px-4 py-3 flex items-center gap-3">
+      <div class="flex items-center justify-center h-9 w-9 rounded-xl bg-emerald-600 text-white font-bold">HW</div>
+      <h1 class="text-lg font-semibold">Hot Wheels Capture</h1>
+      <div class="ml-auto text-xs text-gray-600" id="count">0 saved</div>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-4 space-y-6">
+    <!-- Capture section -->
+    <section class="p-4 border rounded-2xl bg-white shadow-sm">
+      <h2 class="font-semibold">1) Take photos</h2>
+      <p class="text-sm text-gray-600 mt-1">Good light, flat angle. First the <b>front</b> (name/series), then the <b>back</b> (codes/numbering).</p>
+      <div class="grid grid-cols-2 gap-3 mt-3">
+        <label class="group flex flex-col items-center justify-center aspect-[4/3] border-2 border-dashed rounded-xl text-sm text-gray-500 hover:bg-gray-50 cursor-pointer tap">
+          <input id="imgFront" type="file" accept="image/*" capture="environment" class="hidden" />
+          <img id="prevFront" class="hidden object-contain h-full w-full p-2" alt="Front preview" />
+          <span id="frontLabel">＋ Front</span>
+        </label>
+        <label class="group flex flex-col items-center justify-center aspect-[4/3] border-2 border-dashed rounded-xl text-sm text-gray-500 hover:bg-gray-50 cursor-pointer tap">
+          <input id="imgBack" type="file" accept="image/*" capture="environment" class="hidden" />
+          <img id="prevBack" class="hidden object-contain h-full w-full p-2" alt="Back preview" />
+          <span id="backLabel">＋ Back</span>
+        </label>
+      </div>
+      <button id="runOcr" class="mt-3 px-4 py-2 rounded-xl bg-emerald-600 text-white disabled:opacity-50">Run OCR (Front & Back)</button>
+      <div id="ocrStatus" class="mt-2 text-xs text-gray-500"></div>
+      <details class="mt-2">
+        <summary class="text-sm font-medium cursor-pointer">Show raw OCR text</summary>
+        <pre id="ocrText" class="p-2 bg-gray-50 rounded-lg text-xs overflow-x-auto"></pre>
+      </details>
+    </section>
+
+    <!-- Fields section -->
+    <section class="p-4 border rounded-2xl bg-white shadow-sm">
+      <h2 class="font-semibold">2) Verify fields</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+        <div>
+          <label class="text-xs text-gray-600">Name</label>
+          <input id="fName" class="w-full mt-1 px-3 py-2 border rounded-xl" placeholder="e.g., 'Nissan Skyline GT-R (BNR34)'" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-600">Year</label>
+          <input id="fYear" type="number" class="w-full mt-1 px-3 py-2 border rounded-xl" placeholder="e.g., 2023" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-600">Series</label>
+          <input id="fSeries" class="w-full mt-1 px-3 py-2 border rounded-xl" placeholder="e.g., Car Culture / Mainline" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-600">Color</label>
+          <input id="fColor" class="w-full mt-1 px-3 py-2 border rounded-xl" placeholder="e.g., Blue / Silver" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-600">Numbering</label>
+          <input id="fNumbering" class="w-full mt-1 px-3 py-2 border rounded-xl" placeholder="e.g., 5/10 or 175/250" />
+        </div>
+        <div>
+          <label class="text-xs text-gray-600">Notes</label>
+          <input id="fNotes" class="w-full mt-1 px-3 py-2 border rounded-xl" placeholder="Optional" />
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-2 mt-3">
+        <button id="saveBtn" class="px-4 py-2 rounded-xl bg-emerald-600 text-white">Save item</button>
+        <button id="clearBtn" class="px-4 py-2 rounded-xl border">Clear</button>
+      </div>
+    </section>
+
+    <!-- List / export -->
+    <section class="p-4 border rounded-2xl bg-white shadow-sm">
+      <div class="flex items-center gap-2">
+        <h2 class="font-semibold">3) Your items</h2>
+        <input id="search" class="ml-auto px-3 py-2 border rounded-xl text-sm" placeholder="Search…" />
+        <button id="expCSV" class="px-3 py-2 rounded-xl border">Export CSV</button>
+        <button id="expJSON" class="px-3 py-2 rounded-xl border">Export JSON</button>
+      </div>
+      <div id="list" class="mt-3 space-y-2"></div>
+    </section>
+  </main>
+
+  <template id="rowTpl">
+    <div class="p-3 border rounded-xl flex items-center gap-3">
+      <img class="h-16 w-24 object-cover rounded-lg bg-gray-100" />
+      <div class="min-w-0 flex-1">
+        <div class="font-medium truncate name"></div>
+        <div class="text-xs text-gray-600 truncate meta"></div>
+      </div>
+      <button class="px-2 py-1 text-xs rounded-lg border edit">Edit</button>
+      <button class="px-2 py-1 text-xs rounded-lg border text-red-600 del">Delete</button>
+    </div>
+  </template>
+
+  <script>
+    // --- PWA manifest + service worker (single-file trick) ---
+    const manifest = {
+      name: 'Hot Wheels Capture',
+      short_name: 'HotWheels',
+      start_url: '.',
+      display: 'standalone',
+      background_color: '#ffffff',
+      theme_color: '#0a7',
+      icons: [
+        { src: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKCAYAAACNMs+9AAAAGUlEQVQoU2NkQAN/MwMDEyqGJgYGBgYGAB4vAQk2WoDsAAAAAElFTkSuQmCC', sizes: '192x192', type: 'image/png' }
+      ]
+    };
+    const manifestBlob = new Blob([JSON.stringify(manifest)], {type:'application/manifest+json'});
+    const manifestURL = URL.createObjectURL(manifestBlob);
+    const link = document.createElement('link'); link.rel='manifest'; link.href=manifestURL; document.head.appendChild(link);
+
+    // Minimal offline cache
+    const swCode = `self.addEventListener('install', e=>{self.skipWaiting(); e.waitUntil(caches.open('hw-cache-v1').then(c=>c.addAll(['./'])))});
+    self.addEventListener('activate', e=>self.clients.claim());
+    self.addEventListener('fetch', e=>{ e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request).then(res=>{const copy=res.clone(); caches.open('hw-cache-v1').then(c=>c.put(e.request, copy)); return res;})).catch(()=>caches.match('./')))});`;
+    const swURL = URL.createObjectURL(new Blob([swCode], {type:'text/javascript'}));
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register(swURL).catch(()=>{});
+    }
+  </script>
+
+  <script>
+    // --- DOM hooks ---
+    const imgFront = document.getElementById('imgFront');
+    const imgBack = document.getElementById('imgBack');
+    const prevFront = document.getElementById('prevFront');
+    const prevBack = document.getElementById('prevBack');
+    const frontLabel = document.getElementById('frontLabel');
+    const backLabel = document.getElementById('backLabel');
+    const runOcr = document.getElementById('runOcr');
+    const ocrStatus = document.getElementById('ocrStatus');
+    const ocrText = document.getElementById('ocrText');
+
+    const fName = document.getElementById('fName');
+    const fYear = document.getElementById('fYear');
+    const fSeries = document.getElementById('fSeries');
+    const fColor = document.getElementById('fColor');
+    const fNumbering = document.getElementById('fNumbering');
+    const fNotes = document.getElementById('fNotes');
+
+    const saveBtn = document.getElementById('saveBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const list = document.getElementById('list');
+    const rowTpl = document.getElementById('rowTpl');
+    const search = document.getElementById('search');
+    const count = document.getElementById('count');
+
+    // localForage setup
+    localforage.config({ name: 'hotwheels', storeName: 'items' });
+
+    // Preview handlers
+    imgFront.addEventListener('change', () => preview(imgFront, prevFront, frontLabel));
+    imgBack.addEventListener('change', () => preview(imgBack, prevBack, backLabel));
+
+    function preview(input, imgEl, labelEl){
+      const f = input.files?.[0];
+      if (!f) return;
+      const url = URL.createObjectURL(f);
+      imgEl.src = url; imgEl.classList.remove('hidden'); labelEl.classList.add('hidden');
+    }
+
+    // OCR helpers
+    function fileToDataURL(file){ return new Promise(res=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.readAsDataURL(file); }); }
+
+    runOcr.addEventListener('click', async () => {
+      const f1 = imgFront.files?.[0]; const f2 = imgBack.files?.[0];
+      if (!f1 && !f2) { alert('Please add at least one photo.'); return; }
+      runOcr.disabled = true; ocrStatus.textContent = 'Running OCR… this stays on your device.'; ocrText.textContent='';
+      try {
+        let combined = '';
+        const worker = await Tesseract.createWorker('eng');
+        if (f1){
+          const d1 = await fileToDataURL(f1);
+          const r1 = await worker.recognize(d1);
+          combined += '\n' + r1.data.text;
+        }
+        if (f2){
+          const d2 = await fileToDataURL(f2);
+          const r2 = await worker.recognize(d2);
+          combined += '\n' + r2.data.text;
+        }
+        await worker.terminate();
+        ocrText.textContent = combined.trim();
+        ocrStatus.textContent = 'OCR complete. Parsed probable fields below — please verify.';
+        autofillFromText(combined);
+      } catch (e){
+        console.error(e); ocrStatus.textContent = 'OCR failed: ' + e.message;
+      } finally {
+        runOcr.disabled = false;
+      }
+    });
+
+    function autofillFromText(text){
+      const t = normalize(text);
+      // Name heuristic: pick the largest-cased line from front image zone words
+      const lines = t.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+      const nameCand = lines
+        .filter(s => /[a-z]/i.test(s) && s.length>3)
+        .sort((a,b)=> scoreTitle(b)-scoreTitle(a))[0];
+      if (nameCand && !fName.value) fName.value = titleCase(nameCand);
+
+      // Year
+      const yearMatch = t.match(/\b(19\d{2}|20\d{2})\b/);
+      if (yearMatch && !fYear.value) fYear.value = yearMatch[1];
+
+      // Series: look for known tokens
+      const seriesTokens = /(car culture|team transport|premium|mainline|treasure\s*hunt|super\s*treasure\s*hunt|rlc|id\s*series|zamac|red\s*edition)/i;
+      const sMatch = t.match(seriesTokens);
+      if (sMatch && !fSeries.value) fSeries.value = titleCase(sMatch[1]);
+
+      // Color: naive pick of common color words
+      const colors = ['black','white','blue','red','yellow','green','orange','silver','grey','gray','purple','pink','gold','teal','brown'];
+      const foundColor = colors.find(c => new RegExp(`\\b${c}\\b`).test(t));
+      if (foundColor && !fColor.value) fColor.value = titleCase(foundColor);
+
+      // Numbering like 5/10 or 175/250
+      const numMatch = t.match(/\b(\d{1,3}\s*\/\s*\d{1,3})\b/);
+      if (numMatch && !fNumbering.value) fNumbering.value = numMatch[1].replace(/\s+/g,'');
+    }
+
+    function normalize(s){ return s.replace(/\r/g,'').replace(/[\t]+/g,' ').replace(/\s+\n/g,'\n').replace(/\n\s+/g,'\n'); }
+    function scoreTitle(s){ return (s.match(/[A-Z]/g)||[]).length*2 + (s.match(/[a-z]/g)||[]).length - s.length*0.2; }
+    function titleCase(s){ return s.split(/\s+/).map(w=>w? w[0].toUpperCase()+w.slice(1).toLowerCase():w).join(' '); }
+
+    // Save / list
+    async function loadAll(){
+      const arr = (await localforage.getItem('items')) || [];
+      return arr;
+    }
+    async function saveAll(arr){ await localforage.setItem('items', arr); refreshList(arr); }
+
+    function uidFor(item){ return `${item.name||''}::${item.numbering||''}::${item.year||''}::${item.ts||''}`; }
+
+    saveBtn.addEventListener('click', async ()=>{
+      const item = {
+        name: fName.value.trim(),
+        year: fYear.value ? parseInt(fYear.value,10) : null,
+        series: fSeries.value.trim(),
+        color: fColor.value.trim(),
+        numbering: fNumbering.value.trim(),
+        notes: fNotes.value.trim(),
+        ts: Date.now(),
+        front: imgFront.files?.[0] ? await fileToDataURL(imgFront.files[0]) : null,
+        back: imgBack.files?.[0] ? await fileToDataURL(imgBack.files[0]) : null,
+      };
+      if (!item.name) { alert('Name is required.'); return; }
+      const arr = await loadAll();
+      arr.unshift(item);
+      await saveAll(arr);
+      clearForm();
+    });
+
+    clearBtn.addEventListener('click', clearForm);
+    function clearForm(){
+      [fName,fYear,fSeries,fColor,fNumbering,fNotes].forEach(el=>el.value='');
+      [imgFront,imgBack].forEach(input=>{ input.value=''; });
+      [prevFront,prevBack].forEach(img=>{ img.src=''; img.classList.add('hidden'); });
+      [frontLabel,backLabel].forEach(l=>l.classList.remove('hidden'));
+      ocrText.textContent=''; ocrStatus.textContent='';
+    }
+
+    function renderRow(item, idx){
+      const node = rowTpl.content.firstElementChild.cloneNode(true);
+      node.querySelector('img').src = item.front || item.back || '';
+      node.querySelector('.name').textContent = item.name || '(untitled)';
+      node.querySelector('.meta').textContent = [item.series, item.year, item.color, item.numbering].filter(Boolean).join(' • ');
+      node.querySelector('.edit').addEventListener('click', async ()=>{
+        // load into form for quick edit
+        fName.value = item.name || ''; fYear.value = item.year || ''; fSeries.value = item.series || ''; fColor.value = item.color || ''; fNumbering.value=item.numbering||''; fNotes.value=item.notes||'';
+        if (item.front){ prevFront.src=item.front; prevFront.classList.remove('hidden'); frontLabel.classList.add('hidden'); }
+        if (item.back){ prevBack.src=item.back; prevBack.classList.remove('hidden'); backLabel.classList.add('hidden'); }
+        // remove existing so saving will re-add on top
+        const arr = await loadAll(); arr.splice(idx,1); await saveAll(arr);
+      });
+      node.querySelector('.del').addEventListener('click', async ()=>{
+        const arr = await loadAll(); arr.splice(idx,1); await saveAll(arr);
+      });
+      return node;
+    }
+
+    async function refreshList(arr){
+      if (!arr) arr = await loadAll();
+      const q = search.value.trim().toLowerCase();
+      const filtered = q ? arr.filter(x => JSON.stringify(x).toLowerCase().includes(q)) : arr;
+      list.innerHTML=''; filtered.forEach((it, i)=> list.appendChild(renderRow(it, i)) );
+      count.textContent = `${arr.length} saved`;
+    }
+
+    search.addEventListener('input', ()=>refreshList());
+
+    // Export
+    document.getElementById('expJSON').addEventListener('click', async ()=>{
+      const arr = await loadAll();
+      download(new Blob([JSON.stringify(arr,null,2)],{type:'application/json'}), 'hotwheels.json');
+    });
+    document.getElementById('expCSV').addEventListener('click', async ()=>{
+      const arr = await loadAll();
+      const header = ['Name','Year','Series','Color','Numbering','Notes','FrontImage','BackImage'];
+      const rows = [header.join(',')].concat(arr.map(x=>[
+        csv(x.name), x.year||'', csv(x.series), csv(x.color), csv(x.numbering), csv(x.notes), csv(x.front), csv(x.back)
+      ].join(',')));
+      download(new Blob([rows.join('\n')],{type:'text/csv'}), 'hotwheels.csv');
+    });
+    function csv(v){ if(v==null) return ''; const s=String(v).replaceAll('"','""'); return /[,\n]/.test(s)?`"${s}"`:s; }
+    function download(blob, name){ const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(url),500); }
+
+    // Init
+    (async ()=>{ await refreshList(); })();
+  </script>
+</body>
+</html>
